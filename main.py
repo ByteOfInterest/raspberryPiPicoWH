@@ -2,12 +2,13 @@
 import time
 from machine import Pin
 
-# Set the OUTPUT pin to onboard LED
-led = Pin("LED", Pin.OUT)
+pin_input = Pin(27, Pin.IN)
 
 # Runs Forever
 while True:
-    led.on()  # Turn on LED
-    time.sleep(.2)  # Delay for 0.2 seconds
-    led.off()  # Turn off LED
-    time.sleep(1.0)  # Delay for 1.0 seconds
+    value = pin_input.value()
+    if value == 1:
+        print("No vibration detected...")
+    else:
+        print("Vibration detected...")
+    time.sleep_ms(100)
