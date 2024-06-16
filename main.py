@@ -1,8 +1,10 @@
-from machine import Pin
+# Import from libraries
 import time
+from machine import Pin
 
 pin_input = Pin(27, Pin.IN)
 
+# Runs Forever
 while True:
     value = pin_input.value()
     if value == 1:
