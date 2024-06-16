@@ -1,12 +1,22 @@
-from machine import Pin
+import machine
 import time
 
-pin_input = Pin(27, Pin.IN)
+adc = machine.ADC(27)
+sf = 4095/65535  # Scale factor
+volt_per_adc = (3.3/4095)
 
 while True:
-    value = pin_input.value()
-    if value == 1:
-        print("No vibration detected...")
-    else:
-        print("Vibration detected...")
-    time.sleep_ms(100)
+    time.sleep(2)
+    millivolts = adc.read_u16()
+
+    adc_12b = millivolts * sf
+
+    volt = adc_12b * volt_per_adc  # MCP9700 characteristics
+    dx = abs(50-0)
+    dy = abs(0-0.5)
+
+    shift = volt - 0.5
+
+    temp = shift / (dy/dx)
+    print(temp)
+    time.sleep(1)
