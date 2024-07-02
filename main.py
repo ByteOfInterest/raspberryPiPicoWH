@@ -1,12 +1,10 @@
-# main.py
 import sys
-import select
 from machine import Pin, Timer
 import time
 import urequests
 import keys
 import random
-import network
+import select
 
 # Define pins
 vibration_sensor = Pin(28, Pin.IN)
@@ -25,6 +23,8 @@ alarm_timer = Timer()
 debounce_delay = 100  # in milliseconds
 last_vibration_time = 0
 last_user_input_time = 0
+last_ubidots_update_time = 0
+ubidots_request_interval = 2  # seconds (adjust as needed)
 
 # Function to sound the piezo speaker briefly
 def sound_piezo():
@@ -47,7 +47,6 @@ def arm_system():
         led_disarmed.off()
         print("System armed")
         send_telegram_message(keys.TELEGRAM_BOT_TOKEN, keys.TELEGRAM_CHAT_ID, "System armed")
-        check_vibration()  # Start checking for vibrations
 
 # Function to disarm the system
 def disarm_system():
@@ -70,25 +69,51 @@ def send_telegram_message(token, chat_id, message):
     }
     try:
         response = urequests.post(url, json=data)
-        print("Notification sent:", response.text)
+        response_data = response.json()
+        if response_data.get('ok'):
+            print("Notification sent:", response_data)
+        else:
+            print("Failed to send notification:", response_data.get('description'))
     except Exception as e:
         print("Failed to send notification:", e)
 
+# Function to send data to Ubidots with rate limiting
+def send_data_to_ubidots(variable, value):
+    global last_ubidots_update_time
+    
+    # Implement rate limiting
+    current_time = time.time()
+    if current_time - last_ubidots_update_time < ubidots_request_interval:
+        time.sleep(ubidots_request_interval - (current_time - last_ubidots_update_time))
+    
+    # Update last request time
+    last_ubidots_update_time = time.time()
+    
+    # Send data to Ubidots
+    url = f'https://industrial.api.ubidots.com/api/v1.6/devices/{keys.UBIDOTS_DEVICE_LABEL}/{variable}/values'
+    headers = {"X-Auth-Token": keys.UBIDOTS_TOKEN, "Content-Type": "application/json"}
+    data = {"value": value}
+    try:
+        response = urequests.post(url, json=data, headers=headers)
+        print(f"Data sent to Ubidots: {response.text}")
+        return response
+    except Exception as e:
+        print(f"Failed to send data to Ubidots: {e}")
+        return None
+
+# Function to send alarm status to Ubidots
+def send_alarm_status_to_ubidots(status):
+    value = 1 if status else 0
+    send_data_to_ubidots(keys.ALARM_VARIABLE, value)
+
+# Function to send vibration data to Ubidots
+def send_vibration_data_to_ubidots(value):
+    send_data_to_ubidots(keys.VIBRATION_SENSOR_VARIABLE, value)
+
 # Function to check vibration sensor when armed
 def check_vibration():
-    global alarm_on, last_vibration_time, last_user_input_time
+    global alarm_on, last_vibration_time, last_user_input_time, last_ubidots_update_time
     while system_armed:
-        # Check for user input to disarm
-        user_input = non_blocking_input(7)  # Wait up to 7 seconds for input
-        if user_input:
-            handle_user_input(user_input)
-            last_user_input_time = time.ticks_ms()
-        
-        # Check if more than 7 seconds passed since last user input
-        if time.ticks_diff(time.ticks_ms(), last_user_input_time) > 7000:
-            print("No user input within 7 seconds. Continuing armed mode.")
-            last_user_input_time = time.ticks_ms()  # Reset last input time
-        
         # Read sensor value
         current_time = time.ticks_ms()
         sensor_value = vibration_sensor.value()
@@ -103,12 +128,24 @@ def check_vibration():
                 print("Vibration detected! Alarm sounding.")
                 send_telegram_message(keys.TELEGRAM_BOT_TOKEN, keys.TELEGRAM_CHAT_ID, "Vibration detected! Alarm sounding.")
                 alarm_timer.init(period=1000, mode=Timer.ONE_SHOT, callback=sound_alarm)
-
-        # Send data to Telegram every 5 seconds
-        # if system_armed:
-        #     value = random_integer(100)  # Generate random value
-        #     send_telegram_message(keys.TELEGRAM_BOT_TOKEN, keys.TELEGRAM_CHAT_ID, f"Sensor value: {value}")
-        #     time.sleep(5)  # Delay for 5 seconds before sending next data
+        
+        # Send data to Ubidots every 5 minutes
+        if time.time() - last_ubidots_update_time > 300:  # 300 seconds = 5 minutes
+            value = random_integer()  # Generate random value for vibration
+            send_vibration_data_to_ubidots(value)
+            last_ubidots_update_time = time.time()
+        
+        # Wait for 10 seconds before checking vibration again
+        time.sleep(10)
+        
+        # Wait for user input for 7 seconds
+        user_input = non_blocking_input(7)  # Wait up to 7 seconds for input
+        if user_input:
+            handle_user_input(user_input)
+            last_user_input_time = time.ticks_ms()
+        else:
+            print("No user input within 7 seconds. Continuing armed mode.")
+            last_user_input_time = time.ticks_ms()  # Reset last input time
 
 # Function to handle user input
 def handle_user_input(user_input):
@@ -117,9 +154,9 @@ def handle_user_input(user_input):
     elif user_input.lower() == 'disarm' and system_armed:
         disarm_system()
 
-# Function to generate random integer
-def random_integer(upper_bound):
-    return random.getrandbits(32) % upper_bound
+# Function to generate random integer between 0 and 100
+def random_integer():
+    return random.randint(0, 100)
 
 # Non-blocking input function
 def non_blocking_input(timeout=None):
@@ -140,8 +177,11 @@ def non_blocking_input(timeout=None):
 try:
     print("System started")
     while True:
-        user_input = input("Enter 'arm' to arm the system or 'disarm' to disarm the system: ")
-        handle_user_input(user_input)
+        if system_armed:
+            check_vibration()
+        else:
+            user_input = input("Enter 'arm' to arm the system or 'disarm' to disarm the system: ")
+            handle_user_input(user_input)
 
 except KeyboardInterrupt:
     # Clean up on keyboard interrupt
