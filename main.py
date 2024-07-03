@@ -24,7 +24,7 @@ debounce_delay = 100  # in milliseconds
 last_vibration_time = 0
 last_user_input_time = 0
 last_ubidots_update_time = 0
-ubidots_request_interval = 2  # seconds (adjust as needed)
+ubidots_request_interval = 2  # seconds 
 
 # Function to sound the piezo speaker briefly
 def sound_piezo():
